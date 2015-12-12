@@ -1,7 +1,7 @@
 ﻿//=====================================================================================
 // The MIT License (MIT)
 // 
-// EVA OK! - Copyright (c) 2015 WRCsubeRS
+// EVA OK! - Copyright (c) 2015 Cameron Woods/WRCsubeRS
 // 
 // EVA OK! - A Mod for Kerbal Space Program by Squad
 //
@@ -24,12 +24,14 @@
 // SOFTWARE.
 // 
 //=====================================================================================
+//Version 1.1 - Released 12.12.15
 //Version 1.0 - Initial Release 12.03.15
 //
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Timers;
 using UnityEngine;
 using UnityEngine.Events;
 using System.IO;
@@ -37,230 +39,192 @@ using System.IO;
 namespace EVAOK
 {
 	[KSPAddon (KSPAddon.Startup.SpaceCentre, false)]
-	public class EVAOK : MonoBehaviour
+	public class EVAOKMonoSpaceCentre : MonoBehaviour
 	{
 		//============================================================================================================================================
 		//Define Variables
 		//============================================================================================================================================
+
 		//Settings Stuff
-		private ConfigNode EVAOK_SystemSettings;
-		private KeyCode EVAOK_OverrideKeyCode = KeyCode.RightControl;
-		private string EVAOK_OverrideKeyCodeString;
+		private ConfigNode EVAOK_MSC_SystemSettings;
+		//Default Override Key if there is a problem with external file - default is: RightControl
+		public static KeyCode EVAOK_MSC_OverrideKeyCode = KeyCode.RightControl;
+		private string EVAOK_MSC_OverrideKeyCodeString;
 
 		//GUI Stuff
-		private bool ShowEVAOKSettings = false;
-		private static Rect EVAOK_SettingsGUI = new Rect (Screen.width / 2, Screen.height / 2, 150, 90);
-		//set window position
-		private string KeyMapButtonText = "Set New Key";
-		private ApplicationLauncherButton EVAOK_ToolbarButton = null;
-		private bool DetectNewKeyMap = false;
-		private Texture2D EVAOK_Button = new Texture2D (38, 38, TextureFormat.ARGB32, false);
+		private ApplicationLauncherButton EVAOK_MSC_ToolbarButton = null;
+		private Texture2D EVAOK_MSC_ToolbarButtonTexture = new Texture2D (38, 38, TextureFormat.ARGB32, false);
+		private bool EVAOK_MSC_ShowSettingsGUI = false;
+		private static Rect EVAOK_MSC_SettingsGUIWindow = new Rect (Screen.width - 172, 50, 150, 110);
+		private string EVAOK_MSC_KeyMapButtonText = "<b><color=white>Set New Key</color></b>";
+		private bool EVAOK_MSC_DetectNewKeyMap = false;
 
-		//Logic Stuff
-		Vessel OurVessel = new Vessel ();
-		private bool SafeToEVA = false;
-		private bool EVASafetyOverride = false;
-
-
+		//Timer for Blinking Text
+		private static Timer EVAOK_MSC_Timer100 = new Timer (100);
+		private float EVAOK_MSC_TimerTime = 0.0f;
+		private bool EVAOK_MSC_BlinkText = false;
 
 		//============================================================================================================================================
 		//Start Running Processes
 		//============================================================================================================================================
+
 		//This function gets called only once, during the KSP loading screen.
+		//============================================================================================================================================
 		private void Awake ()
 		{
 			//Set Toolbar Textures and tell us when it's alive
-			if (GameDatabase.Instance.ExistsTexture ("EVAOK!/Textures/ToolbarButtonDefault")) {
-				EVAOK_Button = GameDatabase.Instance.GetTexture ("EVAOK!/Textures/ToolbarButtonDefault", false);
+			if (GameDatabase.Instance.ExistsTexture ("EVA_OK/Textures/ToolbarButtonDefault")) {
+				EVAOK_MSC_ToolbarButtonTexture = GameDatabase.Instance.GetTexture ("EVA_OK/Textures/ToolbarButtonDefault", false);
 			}
 
 			//Add Hook to GameEvents & Run AppLaucnher Method
-			GameEvents.onGUIApplicationLauncherReady.Add (OnGUIApplicationLauncherReady);
-			OnGUIApplicationLauncherReady ();
+			GameEvents.onGUIApplicationLauncherReady.Add (EVAOK_MSC_OnGUIApplicationLauncherReady);
+			EVAOK_MSC_OnGUIApplicationLauncherReady ();
 
 			//Settings Information for Setting/Retrieving values from external file
-			EVAOK_SystemSettings = new ConfigNode ();
-			EVAOK_SystemSettings = ConfigNode.Load ("GameData/EVAOK!/Config/EVAOK_PluginSettings.cfg");
+			EVAOK_MSC_SystemSettings = new ConfigNode ();
+			EVAOK_MSC_SystemSettings = ConfigNode.Load ("GameData/EVA_OK/Config/EVAOK_PluginSettings.cfg");
 
 			//If settings exist load those, otherwise create new settings in SaveSettings method
-			if (EVAOK_SystemSettings != null) {
+			if (EVAOK_MSC_SystemSettings != null) {
 				print ("EVA-OK! - Settings exist! Loading Values...");
 				//Read Keycode from text file and convert it to a KeyCode
-				EVAOK_OverrideKeyCodeString = System.IO.File.ReadAllText ("GameData/EVAOK!/Config/EVAOK_PluginSettings.cfg");
-				EVAOK_OverrideKeyCode = (KeyCode)System.Enum.Parse (typeof(KeyCode), EVAOK_OverrideKeyCodeString);
+				EVAOK_MSC_OverrideKeyCodeString = System.IO.File.ReadAllText ("GameData/EVA_OK/Config/EVAOK_PluginSettings.cfg");
+				EVAOK_MSC_OverrideKeyCode = (KeyCode)System.Enum.Parse (typeof(KeyCode), EVAOK_MSC_OverrideKeyCodeString);
 			} else {
 				print ("EVA-OK! - Settings don't exist! Creating new file with built in defaults...");
-				EVAOK_SaveSettings ();
+				EVAOK_MSC_SaveSettings ();
 			}
+			//Setup Timer for Text Blinking
+			EVAOK_MSC_Timer100.Elapsed += new ElapsedEventHandler (EVAOK_MSC_OnTimedEvent1);
 		}
 
 		//This is all GUI Stuff...
 		//============================================================================================================================================
-
 		//Create Toolbar Button if one doesn't already exist
-		private void OnGUIApplicationLauncherReady ()
+		private void EVAOK_MSC_OnGUIApplicationLauncherReady ()
 		{
-			if (EVAOK_ToolbarButton == null) {
-				EVAOK_ToolbarButton = ApplicationLauncher.Instance.AddModApplication (
-					EVAOK_GUISwitch, EVAOK_GUISwitch,
+			if (EVAOK_MSC_ToolbarButton == null) {
+				EVAOK_MSC_ToolbarButton = ApplicationLauncher.Instance.AddModApplication (
+					EVAOK_MSC_GUISwitch, EVAOK_MSC_GUISwitch,
 					null, null,
 					null, null,
 					ApplicationLauncher.AppScenes.SPACECENTER,
-					EVAOK_Button
+					EVAOK_MSC_ToolbarButtonTexture
 				);
 			}
 		}
 
 		//This is the Switch to turn show/hide the main GUI
 		//============================================================================================================================================
-		public void EVAOK_GUISwitch ()
+		public void EVAOK_MSC_GUISwitch ()
 		{
 			//When Toolbar Button is Pressed...
 			//Show The Settings Window
-			if (ShowEVAOKSettings == false) {
-				RenderingManager.AddToPostDrawQueue (0, OnDraw);
-				ShowEVAOKSettings = true;
+			if (EVAOK_MSC_ShowSettingsGUI == false) {
+				RenderingManager.AddToPostDrawQueue (0, EVAOK_MSC_OnDraw);
+				EVAOK_MSC_ShowSettingsGUI = true;
 			} else {
 				//Hide The Settings Window and Save Settings
-				RenderingManager.RemoveFromPostDrawQueue (0, OnDraw);
+				RenderingManager.RemoveFromPostDrawQueue (0, EVAOK_MSC_OnDraw);
+				EVAOK_MSC_DetectNewKeyMap = false;
+				EVAOK_MSC_KeyMapButtonText = "<b><color=white>Set New Key</color></b>";
 				//Save Settings Automatically when window is closed
-				EVAOK_SaveSettings ();
-				ShowEVAOKSettings = false;
+				EVAOK_MSC_SaveSettings ();
+				EVAOK_MSC_ShowSettingsGUI = false;
 			}
-			print (EVAOK_ToolbarButton.container.transform.localPosition.x);
 		}
 
-		//OnDraw Method
+		//EVAOK_MSC_OnDraw Method
 		//============================================================================================================================================
-		private void OnDraw ()
+		private void EVAOK_MSC_OnDraw ()
 		{
 			GUI.skin.window.richText = true;
-			if (ShowEVAOKSettings == true) {
-				EVAOK_SettingsGUI = GUI.Window (151844, EVAOK_SettingsGUI, EVAOK_GUI, "<b>EVA OK!</b>");
+			if (EVAOK_MSC_ShowSettingsGUI == true) {
+				EVAOK_MSC_SettingsGUIWindow = GUI.Window (151844, EVAOK_MSC_SettingsGUIWindow, EVAOK_MSC_GUI, "<b>EVA OK!</b>");
 			} 
 		}
 
 		//GUI Windows Setup
 		//============================================================================================================================================
-		private void EVAOK_GUI (int WindowID)
+		private void EVAOK_MSC_GUI (int WindowID)
 		{
 			//Current KeyMap display
 			GUI.skin.label.fontStyle = FontStyle.Bold;
-			GUI.skin.label.fontSize = 14;
-			GUI.Label (new Rect (3, 18, 144, 25), "Override Key: " + EVAOK_OverrideKeyCode.ToString ());
+			GUI.skin.label.alignment = TextAnchor.MiddleCenter;
+			GUI.skin.label.fontSize = 13;
+			GUI.Label (new Rect (3, 13, 144, 25), "Override Key: ");
+			GUI.skin.box.fontSize = 14;
+			GUI.Box (new Rect (20, 34, 110, 25), EVAOK_MSC_OverrideKeyCode.ToString ());
 			GUI.skin.button.fontStyle = FontStyle.Bold;
 			//KeyMap Button
 			GUI.skin.button.fontSize = 13;
-			GUIContent ButtonMapSwitch = new GUIContent ("<b><color=white>" + KeyMapButtonText + "</color></b>");
-			if (GUI.Button (new Rect (15, 45, 120, 22), ButtonMapSwitch) == true) {
-				DetectNewKeyMap = true;
+			GUIContent ButtonMapSwitch = new GUIContent (EVAOK_MSC_KeyMapButtonText);
+			if (GUI.Button (new Rect (15, 63, 120, 22), ButtonMapSwitch) == true) {
+				EVAOK_MSC_DetectNewKeyMap = true;
 			}
 			//Okay Button
-			GUI.skin.button.fontSize = 11;
-			GUIContent EVAOK_OKButton = new GUIContent ("<b><color=white>Okay</color></b>");
-			if (GUI.Button (new Rect (45, 70, 60, 16), EVAOK_OKButton) == true) {
+			GUI.skin.button.fontSize = 10;
+			GUIContent EVAOK_MSC_OKButton = new GUIContent ("<b><color=#bfbfbf>Okay</color></b>");
+			if (GUI.Button (new Rect (45, 88, 60, 18), EVAOK_MSC_OKButton) == true) {
 				//Close Window and Save Settings when 'Okay' is pressed
-				EVAOK_GUISwitch ();
+				EVAOK_MSC_GUISwitch ();
 			}
 			GUI.DragWindow (new Rect (0, 0, 150, 17));
 		}
 
+		//OnGui Method - Key Detection must go here!
+		//============================================================================================================================================
 		void OnGUI ()
 		{
-			if (DetectNewKeyMap == true) {
-				KeyMapButtonText = "Press Any Key...";
-				Event EVAOK_NewKeyCode = Event.current;
-				if (EVAOK_NewKeyCode.isKey) {
-					EVAOK_OverrideKeyCode = EVAOK_NewKeyCode.keyCode;
-					Debug.Log ("EVA-OK! - Detected key code: " + EVAOK_NewKeyCode.keyCode);
-					DetectNewKeyMap = false;
-					KeyMapButtonText = "Set New Key";
+			if (EVAOK_MSC_DetectNewKeyMap == true) {
+				//Start Timer for Text Blinking
+				EVAOK_MSC_Timer100.Enabled = true;
+				if (EVAOK_MSC_BlinkText == true) {
+					EVAOK_MSC_KeyMapButtonText = "<b><color=white>Press Any Key...</color></b>";
+				} else {
+					EVAOK_MSC_KeyMapButtonText = "<b><color=grey>Press Any Key...</color></b>";
 				}
+				//Detect Key Press
+				Event EVAOK_MSC_NewKeyCode = Event.current;
+				if (EVAOK_MSC_NewKeyCode.isKey) {
+					EVAOK_MSC_OverrideKeyCode = EVAOK_MSC_NewKeyCode.keyCode;
+					//Once Key Code is detected exit this detection sequence
+					EVAOK_MSC_DetectNewKeyMap = false;
+					EVAOK_MSC_KeyMapButtonText = "<b><color=white>Set New Key</color></b>";
+					EVAOK_MSC_Timer100.Stop ();
+				}
+			}
+		}
+
+		//Timer Events for Module, these are for various things...
+		//============================================================================================================================================
+		private void EVAOK_MSC_OnTimedEvent1 (object source, ElapsedEventArgs e)
+		{
+			//EVAOK_MSC_TimerTime for Blink Text - This runs continuously
+			EVAOK_MSC_TimerTime += 0.1f;
+			//Blink Text every 0.4 seconds
+			if (EVAOK_MSC_TimerTime == 0.4f) {
+				EVAOK_MSC_TimerTime = 0.0f;
+				EVAOK_MSC_BlinkText = !EVAOK_MSC_BlinkText;
 			}
 		}
 
 		//Save Settings to external File
 		//============================================================================================================================================
-		private void EVAOK_SaveSettings ()
+		private void EVAOK_MSC_SaveSettings ()
 		{
-			System.IO.File.WriteAllText ("GameData/EVAOK!/Config/EVAOK_PluginSettings.cfg", EVAOK_OverrideKeyCode.ToString ());
+			System.IO.File.WriteAllText ("GameData/EVA_OK/Config/EVAOK_PluginSettings.cfg", EVAOK_MSC_OverrideKeyCode.ToString ());
 		}
 
+		//OnDisable Method - This is called when the toolbar button is destroyed, make sure we save settings...
+		//============================================================================================================================================
 		private void OnDisable ()
 		{
-			ApplicationLauncher.Instance.RemoveModApplication (EVAOK_ToolbarButton);
-			GameEvents.onGUIApplicationLauncherReady.Remove (OnGUIApplicationLauncherReady);
-		}
-
-		//Called when the flight starts or in the editor. OnStart will be called before OnUpdate or OnFixedUpdate are ever called.
-		//============================================================================================================================================
-		private void Start ()
-		{
-			OurVessel = FlightGlobals.ActiveVessel;
-		}
-
-		//This method runs every physics frame
-		//============================================================================================================================================
-		private void FixedUpdate ()
-		{
-			//Press and hold Key to bypass safety measures so you can EVA
-			if (Input.GetKey (EVAOK_OverrideKeyCode)) {
-				EVASafetyOverride = true;
-			}
-			if (Input.GetKeyUp (EVAOK_OverrideKeyCode)) {
-				EVASafetyOverride = false;
-			}
-
-			//Make sure we are the current vessel
-			if (OurVessel != FlightGlobals.ActiveVessel) {
-				OurVessel = FlightGlobals.ActiveVessel;
-			}
-
-			//Only run if our craft can actually hold crew
-			if (OurVessel.GetCrewCapacity () > 0) {
-				if (EVASafetyOverride == true) {
-					SafeToEVA = true;
-				} else {
-					//START ATMOSPHERE---------------------------------------------------------------------
-					//If we are on a planet with an atmosphere...
-					if (OurVessel.atmDensity > 0) {
-						//...and we are landing on water/land...
-						if (OurVessel.LandedOrSplashed == true) {
-							//...and we are travelling less than 10m/s...
-							if (OurVessel.srfSpeed < 10) {
-								//...it is safe to EVA!
-								SafeToEVA = true;
-								//Otherwise...NOT SAFE TO EVA!
-							} else {
-								SafeToEVA = false;
-							}
-						} else {
-							SafeToEVA = false;
-						}
-						//END ATMOSPHERE---------------------------------------------------------------------
-					} else {
-						//START VACUUM---------------------------------------------------------------------
-						//If we are in a vacuum
-						if (OurVessel.atmDensity == 0) {
-							//...and our throttle is off...
-							if (FlightInputHandler.state.mainThrottle == 0) {
-								//...it is safe to EVA
-								SafeToEVA = true;
-							} else {
-								//Otherwise...NOT SAFE TO EVA!
-								SafeToEVA = false;
-							}
-						}
-						//END VACUUM---------------------------------------------------------------------
-					}
-				}
-			}
-			//Set wether EVA is possible based on above parameters...
-			if (SafeToEVA == true) {
-				HighLogic.CurrentGame.Parameters.Flight.CanEVA = true;
-			} else {
-				HighLogic.CurrentGame.Parameters.Flight.CanEVA = false;
-			}
+			EVAOK_MSC_SaveSettings ();
+			ApplicationLauncher.Instance.RemoveModApplication (EVAOK_MSC_ToolbarButton);
+			GameEvents.onGUIApplicationLauncherReady.Remove (EVAOK_MSC_OnGUIApplicationLauncherReady);
+			EVAOK_MSC_Timer100.Dispose ();
 		}
 	}
 }
