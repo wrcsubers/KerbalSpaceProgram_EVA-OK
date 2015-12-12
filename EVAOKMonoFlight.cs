@@ -1,7 +1,7 @@
 ﻿//=====================================================================================
 // The MIT License (MIT)
 // 
-// EVA OK! - Copyright (c) 2015 WRCsubeRS
+// EVA OK! - Copyright (c) 2015 Cameron Woods/WRCsubeRS
 // 
 // EVA OK! - A Mod for Kerbal Space Program by Squad
 //
@@ -24,6 +24,7 @@
 // SOFTWARE.
 // 
 //=====================================================================================
+//Version 1.1 - Released 12.12.15
 //Version 1.0 - Initial Release 12.03.15
 //
 using System;
@@ -31,84 +32,107 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Events;
 using System.IO;
 
 namespace EVAOK
 {
 	[KSPAddon (KSPAddon.Startup.Flight, false)]
-	public class EVAOK : MonoBehaviour
+	public class EVAOKMonoFlight : MonoBehaviour
 	{
 		//============================================================================================================================================
 		//Define Variables
 		//============================================================================================================================================
-		Vessel OurVessel = new Vessel ();
-		private bool SafeToEVA = false;
-		private bool EVASafetyOverride = false;
+
+		//Settings Stuff
+		private ConfigNode EVAOK_MFL_SystemSettings;
+		public static KeyCode EVAOK_MFL_OverrideKeyCode = KeyCode.RightControl;
+		private string EVAOK_MFL_OverrideKeyCodeString;
+
+		//Logic Stuff
+		Vessel EVAOK_MFL_OurVessel = new Vessel ();
+		private bool EVAOK_MFL_SafeToEVA = false;
+		private bool EVAOK_MFL_EVASafetyOverride = false;
 
 		//============================================================================================================================================
 		//Start Running Processes
 		//============================================================================================================================================
 
-		//Called when the flight starts or in the editor. OnStart will be called before OnUpdate or OnFixedUpdate are ever called.
+		//Start - Called when the flight starts or in the editor. Start will be called before OnUpdate or OnFixedUpdate are ever called.
 		//============================================================================================================================================
 		private void Start ()
 		{
-			OurVessel = FlightGlobals.ActiveVessel;
+			EVAOK_MFL_OurVessel = FlightGlobals.ActiveVessel;
+			//Settings Information for Setting/Retrieving values from external file, we could reference the value from MonoSpaceCentre but we'll use the external file incase the Space Center is somehow bypassed during loading.
+			EVAOK_MFL_SystemSettings = new ConfigNode ();
+			EVAOK_MFL_SystemSettings = ConfigNode.Load ("GameData/EVA_OK/Config/EVAOK_PluginSettings.cfg");
+			//If settings exist load those, otherwise use default of 'RightControl' button
+			if (EVAOK_MFL_SystemSettings != null) {
+				print ("EVA-OK! - Settings exist! Loading Values...");
+				//Read Keycode from text file and convert it to a KeyCode
+				EVAOK_MFL_OverrideKeyCodeString = System.IO.File.ReadAllText ("GameData/EVA_OK/Config/EVAOK_PluginSettings.cfg");
+				EVAOK_MFL_OverrideKeyCode = (KeyCode)System.Enum.Parse (typeof(KeyCode), EVAOK_MFL_OverrideKeyCodeString);
+			}
 		}
-		//This method runs every physics frame
+
+		//FixedUpdate - This method runs every physics frame
 		//============================================================================================================================================
 		private void FixedUpdate ()
 		{
 			//Press and hold Key to bypass safety measures so you can EVA
-			if (Input.GetKey (KeyCode.RightControl)) {
-				EVASafetyOverride = true;
+			if (Input.GetKey (EVAOK_MFL_OverrideKeyCode)) {
+				EVAOK_MFL_EVASafetyOverride = true;
 			}
-			if (Input.GetKeyUp (KeyCode.RightControl)) {
-				EVASafetyOverride = false;
+			if (Input.GetKeyUp (EVAOK_MFL_OverrideKeyCode)) {
+				EVAOK_MFL_EVASafetyOverride = false;
 			}
 
 			//Make sure we are the current vessel
-			if (OurVessel != FlightGlobals.ActiveVessel) {
-				OurVessel = FlightGlobals.ActiveVessel;
+			if (EVAOK_MFL_OurVessel != FlightGlobals.ActiveVessel) {
+				EVAOK_MFL_OurVessel = FlightGlobals.ActiveVessel;
 			}
 
 			//Only run if our craft can actually hold crew
-			if (OurVessel.GetCrewCapacity () > 0) {
-				if (EVASafetyOverride == true) {
-					SafeToEVA = true;
+			if (EVAOK_MFL_OurVessel.GetCrewCapacity () > 0) {
+				if (EVAOK_MFL_EVASafetyOverride == true) {
+					EVAOK_MFL_SafeToEVA = true;
 				} else {
-					//START-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+					//START ATMOSPHERE---------------------------------------------------------------------
 					//If we are on a planet with an atmosphere...
-					if (OurVessel.atmDensity > 0) {
+					if (EVAOK_MFL_OurVessel.atmDensity > 0) {
 						//...and we are landing on water/land...
-						if (OurVessel.LandedOrSplashed == true) {
+						if (EVAOK_MFL_OurVessel.LandedOrSplashed == true) {
 							//...and we are travelling less than 10m/s...
-							if (OurVessel.srfSpeed < 10) {
+							if (EVAOK_MFL_OurVessel.srfSpeed < 10) {
 								//...it is safe to EVA!
-								SafeToEVA = true;
+								EVAOK_MFL_SafeToEVA = true;
 								//Otherwise...NOT SAFE TO EVA!
 							} else {
-								SafeToEVA = false;
+								EVAOK_MFL_SafeToEVA = false;
 							}
 						} else {
-							SafeToEVA = false;
+							EVAOK_MFL_SafeToEVA = false;
 						}
-						//END-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+						//END ATMOSPHERE---------------------------------------------------------------------
 					} else {
-						//START-VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
-						if (OurVessel.atmDensity == 0) {
+						//START VACUUM---------------------------------------------------------------------
+						//If we are in a vacuum
+						if (EVAOK_MFL_OurVessel.atmDensity == 0) {
 							//...and our throttle is off...
 							if (FlightInputHandler.state.mainThrottle == 0) {
-								SafeToEVA = true;
+								//...it is safe to EVA
+								EVAOK_MFL_SafeToEVA = true;
 							} else {
-								SafeToEVA = false;
+								//Otherwise...NOT SAFE TO EVA!
+								EVAOK_MFL_SafeToEVA = false;
 							}
 						}
-						//END-VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+						//END VACUUM---------------------------------------------------------------------
 					}
 				}
 			}
-			if (SafeToEVA == true) {
+			//Set wether EVA is possible based on above parameters...
+			if (EVAOK_MFL_SafeToEVA == true) {
 				HighLogic.CurrentGame.Parameters.Flight.CanEVA = true;
 			} else {
 				HighLogic.CurrentGame.Parameters.Flight.CanEVA = false;
